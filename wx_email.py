@@ -3,8 +3,11 @@
 from wxpy import *
 from wxpy import get_wechat_logger
 import re, os
+import time
+from datetime import datetime
 import yagmail
-yag = yagmail.SMTP( user="123@163.com", password="123", host='smtp.163.com')
+import functools
+yag = yagmail.SMTP( user="111@163.com", password="111", host='smtp.163.com')
 contents = ['kindle attachments test']
 bot = Bot(cache_path=True,console_qr = True)
 bot.enable_puid('wxpy_puid.pkl')
@@ -15,16 +18,47 @@ reStr_search = re.compile('search')
 reStr_send = re.compile('send')
 reStr_email = re.compile('^[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)+$')
 files_list = []
+time_period = 10
+
+def period_calculate():
+    """
+    时间调用周期生成器
+    """
+    global time_period
+    call_after = 0
+    while True:
+        call_before = time.time()
+        yield call_after
+        time_period = time.time() - call_before
+    return
+
+r = period_calculate() # 调用时间周期生成器
+
+def calculate_period(func):
+    """
+    函数调用时间计算装饰器
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kw):
+        print('call %s():' % func.__name__)
+        next(r)
+        print('time_period:{0}'.format(time_period))
+        return func(*args, **kw)
+    return wrapper
+
 for root, dirs, files in os.walk(booksrc_dir):
     for i in files:
         sfile = os.path.join(root, i)
         files_list.append(sfile)
 
-#@bot.register()
-#def just_print(msg):
-#    print(msg)
+@calculate_period
+def func_test():
+    return time_period
+
 @bot.register([tq,byp], TEXT)
 def auto_reply(msg):
+    if func_test()<5:
+        return '调用检测...你太快了，五秒后重试'
     # 搜索资源
     if reStr_search.match(msg.text) is not None:
         booklist = []
@@ -74,9 +108,3 @@ def auto_reply(msg):
 embed()
 #bot.join()
 
-# 获得一个专用 Logger
-# 当不设置 `receiver` 时，会将日志发送到随后扫码登陆的微信的"文件传输助手"
-#logger = get_wechat_logger(receiver='wxpy.pkl')
-
-# 发送警告
-#logger.warning('这是一条 WARNING 等级的日志，你收到了吗？')
