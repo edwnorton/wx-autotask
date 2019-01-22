@@ -2,17 +2,30 @@
 # -*- coding: utf-8 -*-
 from wxpy import *
 from wxpy import get_wechat_logger
-import re, os
+import re, os, sys
 import time
 from datetime import datetime
 import yagmail
 import functools
-yag = yagmail.SMTP( user="111@163.com", password="111", host='smtp.163.com')
+import django
+
+# 引用django的model模块
+sys.path.insert(0, '/home/tq/py_env/django/mysite')
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mysite.settings")
+django.setup()
+from polls.models import BookList
+
+# 邮件功能
+yag = yagmail.SMTP( user="@163.com", password="", host='smtp.163.com')
 contents = ['kindle attachments test']
+
+# 生成微信对象
 bot = Bot(cache_path=True,console_qr = True)
 bot.enable_puid('wxpy_puid.pkl')
 tq = bot.friends().search(puid='33ed3109')[0]
 byp = bot.friends().search(puid='d37e829b')[0]
+cj = bot.friends().search(puid='df441588')[0]
+
 booksrc_dir = '/home/tq/mywork/Wechat/baiduyun/download/book'
 reStr_search = re.compile('search')
 reStr_send = re.compile('send')
@@ -46,58 +59,54 @@ def calculate_period(func):
         return func(*args, **kw)
     return wrapper
 
-for root, dirs, files in os.walk(booksrc_dir):
-    for i in files:
-        sfile = os.path.join(root, i)
-        files_list.append(sfile)
-
 @calculate_period
 def func_test():
     return time_period
 
-@bot.register([tq,byp], TEXT)
+@bot.register([tq, byp, cj], TEXT)
 def auto_reply(msg):
     if func_test()<5:
         return '调用检测...你太快了，五秒后重试'
-    # 搜索资源
     if reStr_search.match(msg.text) is not None:
+        booklist_info = [] 
         booklist = []
         global book_sfile
+        global booklist_location
         global booklist_dict
         booklist_dict = {}
         key_word = msg.text.split(' ')[1]
         if len(msg.text.split(' ')) > 2:
             return '一次只可以搜索一本书的资源，不要贪心哦。\n回复：“search 书名” 来查找资源'
         else:
+            a = BookList.objects.filter(bookname__icontains=key_word)
             print_f = ''
-            for i in files_list:
-                book_name = os.path.basename(i)
-                r = re.search(key_word, book_name)
-                if r is not None:
-                    booklist.append(i)
-                    #book_name = os.path.basename(i)
-                    #book_sfile = i
-            booklist_len = len(booklist)
-            if len(booklist) == 0:
-                return 'sorry, no resourse found'
-            else:
+            if a.exists():
+                booklist_info = [(i.bookname, i.location, i.path) for i in a]
+                booklist = [i[0] for i in booklist_info]
+                booklist_location= [i[1] for i in booklist_info]
+                booklist_len = len(booklist)
                 for j in range(len(booklist)):
                     booklist_names = os.path.basename(booklist[j])
                     print_f = print_f + str(j+1) + '.' + booklist_names + '\n'
-                    booklist_dict[str(j+1)] = booklist[j]
+                    booklist_dict[str(j+1)] = os.path.join(booklist_info[j][2],booklist_info[j][0])
                 print_f = print_f + '回复：“send 序号 email” 来获取资源'
                 return print_f
-            #return booklist_dict
+            else:
+                return 'sorry, no resourse found,请尝试换一个关键字查找'
     if reStr_send.match(msg.text) is not None:
         if len(msg.text.split(' ')) == 3 and msg.text.split(' ')[1].isdigit()==True:
             email = msg.text.split(' ')[2]
             book_num = msg.text.split(' ')[1]
-            if reStr_email.match(email) is not None and int(book_num) < len(booklist_dict):
-                contents = [booklist_dict[book_num]]
-                book_name = os.path.basename(booklist_dict[book_num])
-                msg.sender.send('发送中，请稍后...')
-                yag.send(email, 'This mail come from yagmail', contents)
-                return '{0} has sent to email {1}'.format(book_name, email)
+            if reStr_email.match(email) is not None and int(book_num)-1 < len(booklist_dict):
+                if booklist_location[int(book_num)-1] == '1':
+                    contents = [booklist_dict[book_num]]
+                    book_name = os.path.basename(booklist_dict[book_num])
+                    msg.sender.send('发送中，请稍后...')
+                    yag.send(email, 'This mail come from yagmail', contents)
+                    return '{0} has sent to email {1}'.format(book_name, email)
+                if booklist_location[int(book_num)-1] == '2':
+                    book_name = os.path.basename(booklist_dict[book_num])
+                    return '{0} 资源马上更新，敬请期待...'.format(book_name)
             else:
                 return 'email格式或序号有误\n回复：“send 序号 email” 来获取资源'
         else:
